@@ -1,0 +1,16 @@
+{
+  "productName": "Find Mr.W - Financial Detective Game",
+  "companyName": "FindMrWGame",
+  "defaultScreenWidth": 960,
+  "defaultScreenHeight": 600,
+  "webGLMemorySize": 512,
+  "webGLTemplate": "APPLICATION:Default",
+  "webGLCompressionFormat": 1,
+  "webGLExceptionSupport": 1,
+  "webGLDataCaching": 0,
+  "webGLDebugSymbols": false,
+  "mipStripping": false,
+  "m_ActiveColorSpace": 0,
+  "m_MTRendering": true,
+  "textureCompressionFormat": 0
+}

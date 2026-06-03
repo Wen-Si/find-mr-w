@@ -6,6 +6,7 @@ export interface Player {
   experience: number;
   unlockedCases: string[];
   unlockedSkills: string[];
+  completedCases: string[];
   currentProgress: {
     caseId: string;
     collectedClues: string[];
@@ -79,4 +80,35 @@ export interface Skill {
   description: string;
   levelRequired: number;
   icon: string;
+}
+
+export type AIPersona = 'boss' | 'partner' | 'rival';
+
+export interface AIPersonaInfo {
+  name: string;
+  style: string;
+  color: string;
+}
+
+export interface AIChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+  persona?: AIPersona;
+}
+
+export interface AIChatResponse {
+  success: boolean;
+  data: {
+    response: string;
+    persona: AIPersona;
+    personaInfo: AIPersonaInfo;
+    conversationId: string;
+  };
+  error?: string;
+}
+
+export interface AIConversationResponse {
+  success: boolean;
+  data: AIChatMessage[];
 }
