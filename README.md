@@ -9,6 +9,9 @@ A detective-style educational game where players learn to detect financial fraud
 - 📈 Progressive difficulty system
 - 🧩 Clue collection and mystery solving
 - 💾 Persistent progress storage
+- 🤖 AI-powered mystery character (uses qwen3.5 0.8b model)
+- 🎭 Three different character personas: Boss, Partner, Rival
+- 💬 Multi-turn chat with context awareness
 
 ## Tech Stack
 
