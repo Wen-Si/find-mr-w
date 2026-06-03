@@ -3,10 +3,11 @@ import react from '@vitejs/plugin-react'
 import tsconfigPaths from "vite-tsconfig-paths";
 import { traeBadgePlugin } from 'vite-plugin-trae-solo-badge';
 
-// https://vite.dev/config/
 export default defineConfig({
+  base: '/find-mr-w/',
   build: {
     sourcemap: 'hidden',
+    outDir: 'dist',
   },
   server: {
     proxy: {
