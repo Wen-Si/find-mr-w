@@ -1,5 +1,5 @@
 
-import { Case, Skill } from '../types';
+import { GameCase, Skill } from '../types';
 
 export const skills: Skill[] = [
   {
@@ -32,7 +32,7 @@ export const skills: Skill[] = [
   }
 ];
 
-export const initialCases: Case[] = [
+export const initialCases: GameCase[] = [
   {
     id: 'case-1',
     title: '新星科技公司',

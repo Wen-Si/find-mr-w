@@ -6,15 +6,15 @@ import { AIChatPanel } from '../components/AIChatPanel';
 import { MessageCircle, TrendingUp, AlertTriangle, Briefcase, FileText, Target, User } from 'lucide-react';
 
 export default function GameHome() {
-  const { player, user, cases, isLoading, error, loadCases, logout } = useGameStore();
+  const { player, user, cases, isLoading, error, fetchCases, logout } = useGameStore();
   const navigate = useNavigate();
   const [isAIChatOpen, setIsAIChatOpen] = useState(false);
 
   useEffect(() => {
     if (player && cases.length === 0) {
-      loadCases();
+      fetchCases();
     }
-  }, [player, cases.length, loadCases]);
+  }, [player, cases.length, fetchCases]);
 
   if (!player) {
     navigate('/');

@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useGameStore } from '../store/gameStore';
-import { Case, FinancialStatements, FakePoint, Clue } from '../types';
+import { GameCase, FinancialStatements, FakePoint, Clue } from '../types';
 import { AIChatPanel } from '../components/AIChatPanel';
 import { MessageCircle, ArrowLeft, Search, AlertTriangle, CheckCircle, FileText, TrendingUp, Target } from 'lucide-react';
 
 export default function CaseInvestigation() {
   const { caseId } = useParams<{ caseId: string }>();
   const navigate = useNavigate();
-  const { player, cases, isLoading, error, loadCases, loadCase, startCase, collectClue, identifyFakePoint, completeCase } = useGameStore();
+  const { player, cases, isLoading, error, fetchCases, startCase, collectClue, identifyFakePoint, completeCase } = useGameStore();
   const [currentScene, setCurrentScene] = useState(0);
   const [activeTab, setActiveTab] = useState<'balance' | 'income' | 'cashflow'>('balance');
   const [showCaseComplete, setShowCaseComplete] = useState(false);
@@ -16,17 +16,13 @@ export default function CaseInvestigation() {
   const [showFakePointNotification, setShowFakePointNotification] = useState<FakePoint | null>(null);
   const [isAIChatOpen, setIsAIChatOpen] = useState(false);
 
-  const currentCase = cases.find(c => c.id === caseId) as Case | undefined;
+  const currentCase = cases.find(c => c.id === caseId) as GameCase | undefined;
 
   useEffect(() => {
-    if (player) {
-      if (cases.length === 0) {
-        loadCases();
-      } else if (!currentCase && caseId) {
-        loadCase(caseId);
-      }
+    if (player && cases.length === 0) {
+      fetchCases();
     }
-  }, [player, cases.length, caseId, currentCase, loadCases, loadCase]);
+  }, [player, cases.length, fetchCases]);
 
   useEffect(() => {
     if (!player) {
@@ -319,7 +315,7 @@ export default function CaseInvestigation() {
 
                 <button
                   onClick={() => {
-                    completeCase();
+                    completeCase(caseId!, currentCase?.experienceReward || 100);
                     navigate('/game');
                   }}
                   className="group inline-flex items-center gap-3 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white text-xl font-bold py-5 px-12 rounded-2xl transition-all transform hover:scale-105 active:scale-95 shadow-xl shadow-amber-500/30"

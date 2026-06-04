@@ -1,3 +1,8 @@
+export interface User {
+  id: string;
+  username: string;
+  email: string;
+}
 
 export interface Player {
   id: string;
@@ -7,12 +12,15 @@ export interface Player {
   unlockedCases: string[];
   unlockedSkills: string[];
   completedCases: string[];
-  currentProgress: {
-    caseId: string;
-    collectedClues: string[];
-    identifiedFakePoints: string[];
-  } | null;
+  currentProgress: CaseProgress | null;
   wClues: string[];
+}
+
+export interface CaseProgress {
+  caseId: string;
+  collectedClues: string[];
+  identifiedFakePoints: string[];
+  isCompleted?: boolean;
 }
 
 export interface Scene {
@@ -58,7 +66,7 @@ export interface Clue {
   sceneId?: string;
 }
 
-export interface Case {
+export interface GameCase {
   id: string;
   title: string;
   description: string;

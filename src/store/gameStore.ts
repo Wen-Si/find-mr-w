@@ -1,31 +1,22 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { Player, Case } from '../types';
 import * as api from '../api';
+import type { User, Player, GameCase, CaseProgress } from '../types';
 
 interface GameState {
-  // Auth state
   isAuthenticated: boolean;
-  user: { id: string; username: string; email: string } | null;
+  user: User | null;
   token: string | null;
-  
-  // Game state
   player: Player | null;
-  cases: Case[];
+  cases: GameCase[];
   isLoading: boolean;
   error: string | null;
   
-  // Auth actions
   login: (email: string, password: string) => Promise<void>;
   register: (username: string, email: string, password: string) => Promise<void>;
   logout: () => void;
   checkAuth: () => Promise<void>;
-  
-  // Game actions
-  loadCases: () => Promise<void>;
-  loadCase: (caseId: string) => Promise<Case | null>;
-  loadProgress: () => Promise<void>;
-  setPlayer: (player: Player) => void;
+  fetchCases: () => Promise<void>;
   startCase: (caseId: string) => void;
   collectClue: (clueId: string) => void;
   identifyFakePoint: (fakePointId: string) => void;
@@ -42,6 +33,7 @@ const createInitialPlayer = (name: string): Player => ({
   experience: 0,
   unlockedCases: ['case-1'],
   unlockedSkills: ['skill-1'],
+  completedCases: [],
   currentProgress: null,
   wClues: [],
 });
@@ -63,13 +55,13 @@ export const useGameStore = create<GameState>()(
         set({ isLoading: true, error: null });
         try {
           const result = await api.login(email, password);
-          api.setAuthToken(result.token);
+          api.setAuthToken(result.data.token);
           const { user, progress } = await api.getCurrentUser();
           
           set({
             isAuthenticated: true,
-            user: result.user,
-            token: result.token,
+            user: result.data.user,
+            token: result.data.token,
             player: progress,
             isLoading: false,
           });
@@ -83,12 +75,12 @@ export const useGameStore = create<GameState>()(
         set({ isLoading: true, error: null });
         try {
           const result = await api.register(username, email, password);
-          api.setAuthToken(result.token);
+          api.setAuthToken(result.data.token);
           
           set({
             isAuthenticated: true,
-            user: result.user,
-            token: result.token,
+            user: result.data.user,
+            token: result.data.token,
             player: createInitialPlayer(username),
             isLoading: false,
           });
@@ -111,146 +103,134 @@ export const useGameStore = create<GameState>()(
       },
       
       checkAuth: async () => {
-        const token = api.getAuthToken();
-        if (!token) {
-          set({ isAuthenticated: false });
-          return;
-        }
-        
         try {
           const { user, progress } = await api.getCurrentUser();
-          api.setAuthToken(token);
-          set({
-            isAuthenticated: true,
-            user,
-            token,
-            player: progress,
-          });
+          if (user) {
+            set({
+              isAuthenticated: true,
+              user,
+              player: progress,
+            });
+          }
         } catch {
-          api.logout();
           set({
             isAuthenticated: false,
             user: null,
-            token: null,
+            player: null,
           });
         }
       },
       
-      // Game actions
-      loadCases: async () => {
-        set({ isLoading: true, error: null });
+      fetchCases: async () => {
+        set({ isLoading: true });
         try {
           const cases = await api.fetchCases();
           set({ cases, isLoading: false });
         } catch (error) {
-          set({ error: 'Failed to load cases', isLoading: false });
+          set({ error: (error as Error).message, isLoading: false });
+          throw error;
         }
       },
       
-      loadCase: async (caseId) => {
-        try {
-          const caseData = await api.fetchCase(caseId);
-          set(state => ({
-            cases: state.cases.map(c => c.id === caseId ? caseData : c)
-          }));
-          return caseData;
-        } catch {
-          return null;
+      startCase: (caseId: string) => {
+        const currentProgress: CaseProgress = {
+          caseId,
+          collectedClues: [],
+          identifiedFakePoints: [],
+          isCompleted: false,
+        };
+        set({
+          player: {
+            ...get().player!,
+            currentProgress,
+          },
+        });
+      },
+      
+      collectClue: (clueId: string) => {
+        const player = get().player;
+        if (!player?.currentProgress) return;
+        
+        if (!player.currentProgress.collectedClues.includes(clueId)) {
+          player.currentProgress.collectedClues.push(clueId);
+          set({ player });
         }
       },
       
-      loadProgress: async () => {
-        if (!get().isAuthenticated) return;
-        try {
-          const progress = await api.fetchProgress();
-          set({ player: progress });
-        } catch (error) {
-          console.error('Failed to load progress:', error);
+      identifyFakePoint: (fakePointId: string) => {
+        const player = get().player;
+        if (!player?.currentProgress) return;
+        
+        if (!player.currentProgress.identifiedFakePoints.includes(fakePointId)) {
+          player.currentProgress.identifiedFakePoints.push(fakePointId);
+          set({ player });
         }
       },
       
-      setPlayer: (player) => {
-        set({ player });
-      },
-      
-      startCase: (caseId) => {
-        set(state => ({
-          player: state.player ? {
-            ...state.player,
-            currentProgress: {
-              caseId,
-              collectedClues: [],
-              identifiedFakePoints: [],
-            }
-          } : null
-        }));
-      },
-      
-      collectClue: (clueId) => {
-        set(state => ({
-          player: state.player && state.player.currentProgress ? {
-            ...state.player,
-            currentProgress: {
-              ...state.player.currentProgress,
-              collectedClues: [...state.player.currentProgress.collectedClues, clueId]
-            }
-          } : state.player
-        }));
-      },
-      
-      identifyFakePoint: (fakePointId) => {
-        set(state => ({
-          player: state.player && state.player.currentProgress ? {
-            ...state.player,
-            currentProgress: {
-              ...state.player.currentProgress,
-              identifiedFakePoints: [...state.player.currentProgress.identifiedFakePoints, fakePointId]
-            }
-          } : state.player
-        }));
-      },
-      
-      completeCase: async (caseId, experienceReward) => {
-        if (!get().isAuthenticated) return;
+      completeCase: async (caseId: string, experienceReward: number) => {
+        const player = get().player;
+        if (!player) return;
+        
+        const newExperience = player.experience + experienceReward;
+        const newLevel = Math.floor(newExperience / 100) + 1;
+        
+        const updatedPlayer: Player = {
+          ...player,
+          experience: newExperience,
+          level: newLevel,
+          completedCases: [...player.completedCases, caseId],
+          currentProgress: null,
+        };
         
         try {
-          const result = await api.completeCase(caseId, experienceReward);
-          set({ player: result.data });
+          await api.saveProgress(updatedPlayer);
+          set({ player: updatedPlayer });
         } catch (error) {
-          console.error('Failed to complete case:', error);
+          throw error;
         }
       },
       
       unlockNextCase: () => {
-        // Handled on server side
+        const player = get().player;
+        if (!player) return;
+        
+        const nextCaseId = `case-${player.completedCases.length + 1}`;
+        if (!player.unlockedCases.includes(nextCaseId)) {
+          player.unlockedCases.push(nextCaseId);
+          set({ player });
+        }
       },
       
-      addWClue: async (clue) => {
-        if (!get().isAuthenticated) return;
+      addWClue: async (clue: string) => {
+        const player = get().player;
+        if (!player) return;
         
-        try {
-          const result = await api.addWClue(clue);
-          set({ player: result.data });
-        } catch (error) {
-          console.error('Failed to add W clue:', error);
+        if (!player.wClues.includes(clue)) {
+          player.wClues.push(clue);
+          set({ player });
+          await api.saveProgress(player);
         }
       },
       
       resetGame: () => {
+        api.logout();
         set({
+          isAuthenticated: false,
+          user: null,
+          token: null,
           player: null,
           cases: [],
-          isLoading: false,
           error: null,
         });
       },
     }),
     {
-      name: 'find-mr-w-game-storage',
+      name: 'game-storage',
       partialize: (state) => ({
-        token: state.token,
-        user: state.user,
         isAuthenticated: state.isAuthenticated,
+        user: state.user,
+        token: state.token,
+        player: state.player,
       }),
     }
   )
