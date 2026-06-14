@@ -5,10 +5,16 @@ const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const { skills, cases } = require('./data');
 const http = require('http');
+const https = require('https');
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'find-mr-w-secret-key-2024';
+
+// 智谱API配置
+const ZHIPU_API_KEY = '325d6fa364954d2e871c30ba95b553bd.KBdQdqgJgELJBhnv';
+const ZHIPU_API_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
 
 // 内存数据存储
 const users = new Map(); // Map<userId, User>
@@ -317,7 +323,72 @@ function getRandomPersona() {
   return personas[randomIndex];
 }
 
-// 调用 Qwen 模型
+// 调用智谱GLM-4.5-Flash模型
+async function callZhipuModel(messages) {
+  return new Promise((resolve, reject) => {
+    try {
+      const apiKey = Buffer.from(ZHIPU_API_KEY).toString('base64');
+      
+      const postData = JSON.stringify({
+        model: 'glm-4.5-flash',
+        messages: messages,
+        temperature: 0.8,
+        max_tokens: 512,
+      });
+
+      const url = new URL(ZHIPU_API_URL);
+      const options = {
+        hostname: url.hostname,
+        port: 443,
+        path: url.pathname,
+        method: 'POST',
+        headers: {
+          'Authorization': `Basic ${apiKey}`,
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(postData),
+        },
+      };
+
+      const req = https.request(options, (res) => {
+        let data = '';
+
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+
+        res.on('end', () => {
+          try {
+            const result = JSON.parse(data);
+            if (result.choices && result.choices[0] && result.choices[0].message && result.choices[0].message.content) {
+              resolve(result.choices[0].message.content);
+            } else if (result.error) {
+              console.error('Zhipu API error:', result.error);
+              resolve(getFallbackResponse(messages[messages.length - 1]?.content || ''));
+            } else {
+              resolve(result.message || '抱歉，我现在无法提供帮助。');
+            }
+          } catch (error) {
+            console.error('Zhipu API parse error:', error);
+            resolve(getFallbackResponse(messages[messages.length - 1]?.content || ''));
+          }
+        });
+      });
+
+      req.on('error', (error) => {
+        console.error('Zhipu API error:', error);
+        resolve(getFallbackResponse(messages[messages.length - 1]?.content || ''));
+      });
+
+      req.write(postData);
+      req.end();
+    } catch (error) {
+      console.error('Zhipu API error:', error);
+      resolve(getFallbackResponse(messages[messages.length - 1]?.content || ''));
+    }
+  });
+}
+
+// 调用 Qwen 模型（保留备用）
 async function callQwenModel(messages) {
   return new Promise((resolve, reject) => {
     const postData = JSON.stringify({
@@ -476,8 +547,14 @@ app.post('/api/ai/chat', authenticateToken, async (req, res) => {
       { role: 'user', content: message }
     ];
 
-    // 调用 AI 模型
-    const aiResponse = await callQwenModel(messages);
+    // 优先调用智谱GLM-4.5-Flash模型，如果失败则使用Qwen备用
+    let aiResponse;
+    try {
+      aiResponse = await callZhipuModel(messages);
+    } catch (zhipuError) {
+      console.error('Zhipu API failed, falling back to Qwen:', zhipuError);
+      aiResponse = await callQwenModel(messages);
+    }
 
     // 保存对话历史
     conversation.push(
@@ -534,6 +611,254 @@ app.delete('/api/ai/conversation', authenticateToken, (req, res) => {
     success: true,
     message: 'Conversation cleared',
   });
+});
+
+// 玩家角色设定存储
+const playerCharacters = new Map(); // Map<userId, PlayerCharacter>
+
+// 玩家角色设定
+app.post('/api/ai/character', authenticateToken, async (req, res) => {
+  try {
+    const { characterName, characterBackground, personality, goals } = req.body;
+    const userId = req.user.userId;
+    
+    if (!characterName || !characterBackground) {
+      return res.status(400).json({ error: '角色名称和背景是必需的' });
+    }
+    
+    const playerCharacter = {
+      id: uuidv4(),
+      name: characterName,
+      background: characterBackground,
+      personality: personality || '正义、勇敢、聪明',
+      goals: goals || '找出Mr.W的真相',
+      createdAt: new Date().toISOString(),
+    };
+    
+    playerCharacters.set(userId, playerCharacter);
+    
+    res.json({
+      success: true,
+      data: playerCharacter,
+    });
+  } catch (error) {
+    console.error('Character creation error:', error);
+    res.status(500).json({ error: '创建角色失败' });
+  }
+});
+
+// 获取玩家角色
+app.get('/api/ai/character', authenticateToken, (req, res) => {
+  const userId = req.user.userId;
+  const character = playerCharacters.get(userId);
+  
+  if (!character) {
+    return res.status(404).json({ error: '角色未设定' });
+  }
+  
+  res.json({
+    success: true,
+    data: character,
+  });
+});
+
+// AI剧情生成API
+app.post('/api/ai/generate-story', authenticateToken, async (req, res) => {
+  try {
+    const { caseId, stage, context } = req.body;
+    const userId = req.user.userId;
+    
+    // 获取玩家角色
+    const playerCharacter = playerCharacters.get(userId);
+    
+    // 获取当前案件详情
+    const caseInfo = cases.find(c => c.id === caseId);
+    
+    if (!caseInfo) {
+      return res.status(404).json({ error: '案件不存在' });
+    }
+    
+    // 构建剧情生成提示词
+    let storyPrompt;
+    const stageMessages = {
+      'intro': '为玩家生成一段引人入胜的开场剧情，介绍案件背景和主要人物。',
+      'development': '生成一段充满悬念和转折的剧情发展，包括多个NPC对话。',
+      'climax': '生成案件的高潮部分，真相逐渐浮出水面，但有意外转折。',
+      'conclusion': '生成案件结局，包括真相揭露和角色反思。'
+    };
+    
+    const storyStage = stage || 'development';
+    const stageMessage = stageMessages[storyStage] || stageMessages['development'];
+    
+    storyPrompt = `你是《寻找Mr.W》财务侦探游戏的剧情导演。
+
+当前玩家角色信息：
+- 角色名称：${playerCharacter?.name || '未设定角色'}
+- 角色背景：${playerCharacter?.background || '财务分析师'}
+- 角色性格：${playerCharacter?.personality || '正义、勇敢、聪明'}
+- 角色目标：${playerCharacter?.goals || '找出Mr.W的真相'}
+
+当前案件信息：
+- 案件名称：${caseInfo.title}
+- 案件描述：${caseInfo.description}
+- 案件难度：${'⭐'.repeat(caseInfo.difficulty)}
+${caseInfo.story ? `- 案件故事背景：${caseInfo.story}` : ''}
+
+请生成一段${storyStage === 'intro' ? '开场' : storyStage === 'development' ? '发展' : storyStage === 'climax' ? '高潮' : '结局'}阶段的剧情内容，要求：
+1. 情节一波三折，充满悬念和意外
+2. 包含至少3-5个NPC对话，展现不同角色的观点和立场
+3. 每次对话要体现角色的性格特点和动机
+4. 融入财务专业元素（财务报表造假手法、审计线索等）
+5. 设置谜题或挑战，推动玩家参与
+6. 在适当位置标记剧情转折点（如：[转折]、[关键发现]、[意外]）
+
+请用JSON格式输出剧情，格式如下：
+{
+  "title": "剧情标题",
+  "narrative": "叙述性文字",
+  "dialogues": [
+    {
+      "speaker": "说话者名称",
+      "role": "角色身份",
+      "content": "对话内容",
+      "emotion": "情绪描述",
+      "revealsClue": true/false,
+      "clueText": "透露的线索内容（如有）"
+    }
+  ],
+  "plotTwists": ["转折点1", "转折点2"],
+  "playerActions": ["玩家可采取的行动1", "玩家可采取的行动2"],
+  "aiInsight": "给玩家的提示或建议"
+}`;
+
+    const messages = [
+      { role: 'system', content: storyPrompt },
+      { role: 'user', content: `请为${storyStage}阶段生成剧情内容。` }
+    ];
+    
+    // 优先调用智谱API生成剧情
+    let storyContent;
+    try {
+      storyContent = await callZhipuModel(messages);
+    } catch (zhipuError) {
+      console.error('Zhipu API failed for story generation:', zhipuError);
+      storyContent = await callQwenModel(messages);
+    }
+    
+    // 尝试解析JSON
+    let storyData;
+    try {
+      // 尝试提取JSON
+      const jsonMatch = storyContent.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        storyData = JSON.parse(jsonMatch[0]);
+      } else {
+        // 如果不是JSON，直接返回文本
+        storyData = {
+          title: '剧情生成',
+          narrative: storyContent,
+          dialogues: [],
+          plotTwists: [],
+          playerActions: ['继续探索', '与NPC对话'],
+          aiInsight: '仔细分析每一个细节，真相往往隐藏在看似平常的地方。'
+        };
+      }
+    } catch (parseError) {
+      console.error('Story parse error:', parseError);
+      storyData = {
+        title: '剧情生成',
+        narrative: storyContent,
+        dialogues: [],
+        plotTwists: [],
+        playerActions: ['继续探索', '与NPC对话'],
+        aiInsight: '仔细分析每一个细节，真相往往隐藏在看似平常的地方。'
+      };
+    }
+    
+    res.json({
+      success: true,
+      data: {
+        caseId,
+        stage: storyStage,
+        story: storyData,
+      },
+    });
+  } catch (error) {
+    console.error('Story generation error:', error);
+    res.status(500).json({ 
+      error: '剧情生成失败',
+      success: false,
+    });
+  }
+});
+
+// AI角色互动对话
+app.post('/api/ai/character-interaction', authenticateToken, async (req, res) => {
+  try {
+    const { caseId, targetCharacter, playerMessage } = req.body;
+    const userId = req.user.userId;
+    
+    const playerCharacter = playerCharacters.get(userId);
+    const caseInfo = cases.find(c => c.id === caseId);
+    
+    // 角色身份映射
+    const characterMapping = {
+      'boss': { name: '王主任', identity: '上司', style: '严厉、专业、考验' },
+      'partner': { name: '李助理', identity: '同事', style: '热情、帮助、偶尔过度热心' },
+      'rival': { name: '张探长', identity: '竞争对手', style: '竞争、神秘、偶尔透露线索' },
+      'witness': { name: '神秘证人', identity: '证人', style: '紧张、回避、欲言又止' },
+      'suspect': { name: '嫌疑人', identity: '被调查者', style: '狡辩、抵赖、偶尔崩溃' },
+    };
+    
+    const target = characterMapping[targetCharacter] || characterMapping['partner'];
+    
+    const interactionPrompt = `你是《寻找Mr.W》财务侦探游戏中的NPC角色：${target.name}。
+
+角色身份：${target.identity}
+角色风格：${target.style}
+
+玩家角色信息：
+- 名称：${playerCharacter?.name || '财务分析师'}
+- 性格：${playerCharacter?.personality || '正义、勇敢、聪明'}
+
+当前案件：${caseInfo?.title || '调查中'}
+案件描述：${caseInfo?.description || ''}
+
+玩家对${target.name}说："${playerMessage}"
+
+请以${target.name}的身份回复，要求：
+1. 符合角色身份和风格
+2. 自然对话，1-3句话
+3. 可能透露与案件相关的线索或误导信息
+4. 体现角色的情绪和态度变化
+5. 推动剧情发展
+
+回复格式（纯文本即可，不要JSON）：`;
+
+    const messages = [
+      { role: 'system', content: interactionPrompt },
+      { role: 'user', content: playerMessage }
+    ];
+    
+    let response;
+    try {
+      response = await callZhipuModel(messages);
+    } catch (error) {
+      response = await callQwenModel(messages);
+    }
+    
+    res.json({
+      success: true,
+      data: {
+        speaker: target.name,
+        identity: target.identity,
+        response: response,
+      },
+    });
+  } catch (error) {
+    console.error('Character interaction error:', error);
+    res.status(500).json({ error: '对话生成失败' });
+  }
 });
 
 // 根路由

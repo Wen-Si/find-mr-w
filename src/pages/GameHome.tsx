@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useGameStore } from '../store/gameStore';
 import { skills } from '../data/gameData';
 import { AIChatPanel } from '../components/AIChatPanel';
-import { MessageCircle, TrendingUp, AlertTriangle, Briefcase, FileText, Target, User } from 'lucide-react';
+import { MessageCircle, TrendingUp, AlertTriangle, Briefcase, FileText, Target, User, Sparkles, BookOpen } from 'lucide-react';
 
 export default function GameHome() {
   const { player, user, cases, isLoading, error, fetchCases, logout } = useGameStore();
@@ -56,6 +56,14 @@ export default function GameHome() {
 
   const handleStartCase = (caseId: string) => {
     navigate(`/case/${caseId}`);
+  };
+
+  const handleStartStory = (caseId: string) => {
+    navigate(`/story/${caseId}`);
+  };
+
+  const handleSetupCharacter = () => {
+    navigate('/setup');
   };
 
   // 获取当前职业头衔
@@ -248,6 +256,47 @@ export default function GameHome() {
                 </div>
                 <p className="text-3xl font-bold text-white">{player.experience}</p>
                 <p className="mt-2 text-amber-400 text-xs">经验值累计</p>
+              </div>
+            </div>
+
+            {/* AI剧情入口卡片 */}
+            <div className="bg-gradient-to-r from-purple-900/60 via-pink-900/40 to-purple-900/60 rounded-2xl p-6 border border-purple-500/30 relative overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-r from-purple-500/10 to-pink-500/10"></div>
+              <div className="relative z-10">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="w-16 h-16 bg-gradient-to-br from-purple-500 to-pink-500 rounded-2xl flex items-center justify-center text-3xl shadow-lg shadow-purple-500/30">
+                      🤖
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-bold text-white mb-1 flex items-center gap-2">
+                        <Sparkles className="text-amber-400" />
+                        AI智能剧情体验
+                      </h3>
+                      <p className="text-purple-200/80 text-sm">
+                        由AI大模型驱动，你的角色将自动演绎精彩剧情，对话和情节完全由AI生成！
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <button
+                      onClick={handleSetupCharacter}
+                      className="flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-400 hover:to-pink-400 text-white rounded-xl font-medium transition-all shadow-lg shadow-purple-500/30"
+                    >
+                      <User className="w-4 h-4" />
+                      {player.wClues && player.wClues.length > 0 ? '查看/修改角色' : '设定角色'}
+                    </button>
+                    {cases.length > 0 && (
+                      <button
+                        onClick={() => handleStartStory(cases[0].id)}
+                        className="flex items-center gap-2 px-5 py-3 bg-white/10 hover:bg-white/20 border border-purple-400/30 text-purple-200 rounded-xl font-medium transition-all"
+                      >
+                        <BookOpen className="w-4 h-4" />
+                        体验AI剧情
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
 

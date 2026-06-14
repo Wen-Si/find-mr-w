@@ -184,3 +184,48 @@ export const clearAIConversation = async () => {
   const result = await response.json();
   return result;
 };
+
+// AI角色设定
+export const createCharacter = async (characterData: {
+  characterName: string;
+  characterBackground: string;
+  personality?: string;
+  goals?: string;
+}) => {
+  const response = await fetchWithAuth(`${API_BASE_URL}/ai/character`, {
+    method: 'POST',
+    body: JSON.stringify(characterData),
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || 'Failed to create character');
+  return result;
+};
+
+export const getCharacter = async () => {
+  const response = await fetchWithAuth(`${API_BASE_URL}/ai/character`);
+  if (!response.ok) throw new Error('Failed to get character');
+  const result = await response.json();
+  return result;
+};
+
+// AI剧情生成
+export const generateStory = async (caseId: string, stage: string = 'development') => {
+  const response = await fetchWithAuth(`${API_BASE_URL}/ai/generate-story`, {
+    method: 'POST',
+    body: JSON.stringify({ caseId, stage }),
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || 'Failed to generate story');
+  return result;
+};
+
+// AI角色互动对话
+export const characterInteraction = async (caseId: string, targetCharacter: string, playerMessage: string) => {
+  const response = await fetchWithAuth(`${API_BASE_URL}/ai/character-interaction`, {
+    method: 'POST',
+    body: JSON.stringify({ caseId, targetCharacter, playerMessage }),
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || 'Failed to generate interaction');
+  return result;
+};
