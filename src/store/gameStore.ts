@@ -1,33 +1,32 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import * as api from '../api';
+import { initialCases, skills as gameSkills } from '../data/gameData';
 import type { User, Player, GameCase, CaseProgress } from '../types';
 
 interface GameState {
   isAuthenticated: boolean;
   user: User | null;
-  token: string | null;
   player: Player | null;
   cases: GameCase[];
   isLoading: boolean;
   error: string | null;
-  
+
   login: (email: string, password: string) => Promise<void>;
   register: (username: string, email: string, password: string) => Promise<void>;
   logout: () => void;
-  checkAuth: () => Promise<void>;
-  fetchCases: () => Promise<void>;
+  checkAuth: () => void;
+  fetchCases: () => void;
   startCase: (caseId: string) => void;
   collectClue: (clueId: string) => void;
   identifyFakePoint: (fakePointId: string) => void;
-  completeCase: (caseId: string, experienceReward: number) => Promise<void>;
+  completeCase: (caseId: string, experienceReward: number) => void;
   unlockNextCase: () => void;
-  addWClue: (clue: string) => Promise<void>;
+  addWClue: (clue: string) => void;
   resetGame: () => void;
 }
 
 const createInitialPlayer = (name: string): Player => ({
-  id: '',
+  id: `player-${Date.now()}`,
   name,
   level: 1,
   experience: 0,
@@ -41,47 +40,74 @@ const createInitialPlayer = (name: string): Player => ({
 export const useGameStore = create<GameState>()(
   persist(
     (set, get) => ({
-      // Initial state
       isAuthenticated: false,
       user: null,
-      token: null,
       player: null,
       cases: [],
       isLoading: false,
       error: null,
-      
-      // Auth actions
+
       login: async (email, password) => {
         set({ isLoading: true, error: null });
         try {
-          const result = await api.login(email, password);
-          api.setAuthToken(result.data.token);
-          const { user, progress } = await api.getCurrentUser();
-          
+          const users = JSON.parse(localStorage.getItem('fmw_users') || '[]');
+          const user = users.find((u: any) => u.email === email);
+
+          if (!user) {
+            throw new Error('该邮箱尚未注册，请先注册');
+          }
+
+          if (user.password !== password) {
+            throw new Error('密码错误');
+          }
+
+          let playerData = user.progress;
+          if (!playerData) {
+            playerData = createInitialPlayer(user.username);
+          }
+
           set({
             isAuthenticated: true,
-            user: result.data.user,
-            token: result.data.token,
-            player: progress,
+            user: { id: user.id, username: user.username, email: user.email },
+            player: playerData,
             isLoading: false,
           });
+
+          localStorage.setItem('fmw_currentUser', user.email);
         } catch (error) {
           set({ error: (error as Error).message, isLoading: false });
           throw error;
         }
       },
-      
+
       register: async (username, email, password) => {
         set({ isLoading: true, error: null });
         try {
-          const result = await api.register(username, email, password);
-          api.setAuthToken(result.data.token);
-          
+          const users = JSON.parse(localStorage.getItem('fmw_users') || '[]');
+          const existingUser = users.find((u: any) => u.email === email);
+
+          if (existingUser) {
+            throw new Error('该邮箱已被注册');
+          }
+
+          const newPlayer = createInitialPlayer(username);
+          const newUser = {
+            id: `user-${Date.now()}`,
+            username,
+            email,
+            password,
+            progress: newPlayer,
+            createdAt: new Date().toISOString(),
+          };
+
+          users.push(newUser);
+          localStorage.setItem('fmw_users', JSON.stringify(users));
+          localStorage.setItem('fmw_currentUser', email);
+
           set({
             isAuthenticated: true,
-            user: result.data.user,
-            token: result.data.token,
-            player: createInitialPlayer(username),
+            user: { id: newUser.id, username: newUser.username, email: newUser.email },
+            player: newPlayer,
             isLoading: false,
           });
         } catch (error) {
@@ -89,49 +115,43 @@ export const useGameStore = create<GameState>()(
           throw error;
         }
       },
-      
+
       logout: () => {
-        api.logout();
+        localStorage.removeItem('fmw_currentUser');
         set({
           isAuthenticated: false,
           user: null,
-          token: null,
           player: null,
           cases: [],
           error: null,
         });
       },
-      
-      checkAuth: async () => {
-        try {
-          const { user, progress } = await api.getCurrentUser();
+
+      checkAuth: () => {
+        const currentEmail = localStorage.getItem('fmw_currentUser');
+        if (currentEmail) {
+          const users = JSON.parse(localStorage.getItem('fmw_users') || '[]');
+          const user = users.find((u: any) => u.email === currentEmail);
           if (user) {
             set({
               isAuthenticated: true,
-              user,
-              player: progress,
+              user: { id: user.id, username: user.username, email: user.email },
+              player: user.progress || createInitialPlayer(user.username),
             });
+            return;
           }
-        } catch {
-          set({
-            isAuthenticated: false,
-            user: null,
-            player: null,
-          });
         }
+        set({
+          isAuthenticated: false,
+          user: null,
+          player: null,
+        });
       },
-      
-      fetchCases: async () => {
-        set({ isLoading: true });
-        try {
-          const cases = await api.fetchCases();
-          set({ cases, isLoading: false });
-        } catch (error) {
-          set({ error: (error as Error).message, isLoading: false });
-          throw error;
-        }
+
+      fetchCases: () => {
+        set({ cases: initialCases });
       },
-      
+
       startCase: (caseId: string) => {
         const currentProgress: CaseProgress = {
           caseId,
@@ -139,85 +159,148 @@ export const useGameStore = create<GameState>()(
           identifiedFakePoints: [],
           isCompleted: false,
         };
-        set({
-          player: {
-            ...get().player!,
-            currentProgress,
-          },
-        });
+
+        const updatedPlayer = {
+          ...get().player!,
+          currentProgress,
+        };
+
+        // 保存到用户数据
+        const users = JSON.parse(localStorage.getItem('fmw_users') || '[]');
+        const currentEmail = localStorage.getItem('fmw_currentUser');
+        const userIndex = users.findIndex((u: any) => u.email === currentEmail);
+        if (userIndex >= 0) {
+          users[userIndex].progress = updatedPlayer;
+          localStorage.setItem('fmw_users', JSON.stringify(users));
+        }
+
+        set({ player: updatedPlayer });
       },
-      
+
       collectClue: (clueId: string) => {
         const player = get().player;
         if (!player?.currentProgress) return;
-        
+
         if (!player.currentProgress.collectedClues.includes(clueId)) {
           player.currentProgress.collectedClues.push(clueId);
+
+          const users = JSON.parse(localStorage.getItem('fmw_users') || '[]');
+          const currentEmail = localStorage.getItem('fmw_currentUser');
+          const userIndex = users.findIndex((u: any) => u.email === currentEmail);
+          if (userIndex >= 0) {
+            users[userIndex].progress = player;
+            localStorage.setItem('fmw_users', JSON.stringify(users));
+          }
+
           set({ player });
         }
       },
-      
+
       identifyFakePoint: (fakePointId: string) => {
         const player = get().player;
         if (!player?.currentProgress) return;
-        
+
         if (!player.currentProgress.identifiedFakePoints.includes(fakePointId)) {
           player.currentProgress.identifiedFakePoints.push(fakePointId);
+
+          const users = JSON.parse(localStorage.getItem('fmw_users') || '[]');
+          const currentEmail = localStorage.getItem('fmw_currentUser');
+          const userIndex = users.findIndex((u: any) => u.email === currentEmail);
+          if (userIndex >= 0) {
+            users[userIndex].progress = player;
+            localStorage.setItem('fmw_users', JSON.stringify(users));
+          }
+
           set({ player });
         }
       },
-      
-      completeCase: async (caseId: string, experienceReward: number) => {
+
+      completeCase: (caseId: string, experienceReward: number) => {
         const player = get().player;
         if (!player) return;
-        
+
         const newExperience = player.experience + experienceReward;
         const newLevel = Math.floor(newExperience / 100) + 1;
-        
+
         const updatedPlayer: Player = {
           ...player,
           experience: newExperience,
           level: newLevel,
-          completedCases: [...player.completedCases, caseId],
+          completedCases: player.completedCases.includes(caseId)
+            ? player.completedCases
+            : [...player.completedCases, caseId],
           currentProgress: null,
         };
-        
-        try {
-          await api.saveProgress(updatedPlayer);
-          set({ player: updatedPlayer });
-        } catch (error) {
-          throw error;
+
+        // 解锁下一个案件
+        const nextCaseId = `case-${updatedPlayer.completedCases.length + 1}`;
+        if (initialCases.some((c) => c.id === nextCaseId) && !updatedPlayer.unlockedCases.includes(nextCaseId)) {
+          updatedPlayer.unlockedCases.push(nextCaseId);
         }
+
+        // 解锁技能
+        gameSkills.forEach((skill) => {
+          if (newLevel >= skill.levelRequired && !updatedPlayer.unlockedSkills.includes(skill.id)) {
+            updatedPlayer.unlockedSkills.push(skill.id);
+          }
+        });
+
+        // 保存到用户数据
+        const users = JSON.parse(localStorage.getItem('fmw_users') || '[]');
+        const currentEmail = localStorage.getItem('fmw_currentUser');
+        const userIndex = users.findIndex((u: any) => u.email === currentEmail);
+        if (userIndex >= 0) {
+          users[userIndex].progress = updatedPlayer;
+          localStorage.setItem('fmw_users', JSON.stringify(users));
+        }
+
+        set({ player: updatedPlayer });
       },
-      
+
       unlockNextCase: () => {
         const player = get().player;
         if (!player) return;
-        
+
         const nextCaseId = `case-${player.completedCases.length + 1}`;
-        if (!player.unlockedCases.includes(nextCaseId)) {
+        if (initialCases.some((c) => c.id === nextCaseId) && !player.unlockedCases.includes(nextCaseId)) {
           player.unlockedCases.push(nextCaseId);
+
+          const users = JSON.parse(localStorage.getItem('fmw_users') || '[]');
+          const currentEmail = localStorage.getItem('fmw_currentUser');
+          const userIndex = users.findIndex((u: any) => u.email === currentEmail);
+          if (userIndex >= 0) {
+            users[userIndex].progress = player;
+            localStorage.setItem('fmw_users', JSON.stringify(users));
+          }
+
           set({ player });
         }
       },
-      
-      addWClue: async (clue: string) => {
+
+      addWClue: (clue: string) => {
         const player = get().player;
         if (!player) return;
-        
+
         if (!player.wClues.includes(clue)) {
           player.wClues.push(clue);
+
+          const users = JSON.parse(localStorage.getItem('fmw_users') || '[]');
+          const currentEmail = localStorage.getItem('fmw_currentUser');
+          const userIndex = users.findIndex((u: any) => u.email === currentEmail);
+          if (userIndex >= 0) {
+            users[userIndex].progress = player;
+            localStorage.setItem('fmw_users', JSON.stringify(users));
+          }
+
           set({ player });
-          await api.saveProgress(player);
         }
       },
-      
+
       resetGame: () => {
-        api.logout();
+        localStorage.removeItem('fmw_currentUser');
         set({
           isAuthenticated: false,
           user: null,
-          token: null,
           player: null,
           cases: [],
           error: null,
@@ -225,11 +308,10 @@ export const useGameStore = create<GameState>()(
       },
     }),
     {
-      name: 'game-storage',
+      name: 'fmw-auth-state',
       partialize: (state) => ({
         isAuthenticated: state.isAuthenticated,
         user: state.user,
-        token: state.token,
         player: state.player,
       }),
     }
